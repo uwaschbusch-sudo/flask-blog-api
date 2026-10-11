@@ -1,3 +1,5 @@
+from datetime import date, datetime
+
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from flask_swagger_ui import get_swaggerui_blueprint
@@ -6,13 +8,28 @@ app = Flask(__name__)
 CORS(app)  # Aktiviert CORS fuer alle Routen
 
 POSTS = [
-    {"id": 1, "title": "First post", "content": "This is the first post."},
-    {"id": 2, "title": "Second post", "content": "This is the second post."},
+    {
+        "id": 1,
+        "title": "First post",
+        "content": "This is the first post.",
+        "author": "Anonymous",
+        "date": "2023-06-07",
+    },
+    {
+        "id": 2,
+        "title": "Second post",
+        "content": "This is the second post.",
+        "author": "Anonymous",
+        "date": "2023-06-08",
+    },
 ]
 
 REQUIRED_FIELDS = ("title", "content")
-SORT_FIELDS = ("title", "content")
+POST_FIELDS = ("title", "content", "author", "date")
+SORT_FIELDS = POST_FIELDS
 SORT_DIRECTIONS = ("asc", "desc")
+DEFAULT_AUTHOR = "Anonymous"
+DATE_FORMAT = "%Y-%m-%d"
 
 SWAGGER_URL = "/api/docs"  # Adresse der Swagger-Oberflaeche
 API_URL = "/static/masterblog.json"  # Pfad zur Definitionsdatei
@@ -40,6 +57,17 @@ def find_post_by_id(post_id):
     return None
 
 
+def is_valid_date(value):
+    """Prueft, ob der Wert ein gueltiges Datum im Format YYYY-MM-DD ist."""
+    try:
+        if len(value) != 10:
+            return False
+        datetime.strptime(value, DATE_FORMAT)
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
 def find_missing_fields(data):
     """Gibt die fehlenden oder leeren Pflichtfelder zurueck."""
     if not isinstance(data, dict):
@@ -54,22 +82,33 @@ def find_missing_fields(data):
 
 
 def find_invalid_fields(data):
-    """Gibt mitgesendete Felder zurueck, die kein nicht leerer String sind."""
+    """Gibt mitgesendete Felder zurueck, deren Wert ungueltig ist."""
     invalid = []
-    for field in REQUIRED_FIELDS:
-        if field in data:
-            value = data[field]
-            if not isinstance(value, str) or not value.strip():
-                invalid.append(field)
+    for field in POST_FIELDS:
+        if field not in data:
+            continue
+        value = data[field]
+        if not isinstance(value, str) or not value.strip():
+            invalid.append(field)
+        elif field == "date" and not is_valid_date(value):
+            invalid.append(field)
     return invalid
 
 
-def matches_search(post, title_query, content_query):
+def sort_key(post, field):
+    """Gibt den Sortierwert zurueck (Datum als echtes Datum, sonst Text)."""
+    if field == "date":
+        return datetime.strptime(post["date"], DATE_FORMAT).date()
+    return post[field].lower()
+
+
+def matches_search(post, field_queries, general_query):
     """Prueft, ob der Beitrag zu einem der Suchbegriffe passt."""
-    if title_query and title_query in post["title"].lower():
-        return True
-    if content_query and content_query in post["content"].lower():
-        return True
+    for field, term in field_queries.items():
+        if term and term in post[field].lower():
+            return True
+    if general_query:
+        return any(general_query in post[f].lower() for f in POST_FIELDS)
     return False
 
 
@@ -96,7 +135,7 @@ def get_posts():
 
     sorted_posts = sorted(
         POSTS,
-        key=lambda post: post[sort_field].lower(),
+        key=lambda post: sort_key(post, sort_field),
         reverse=(direction == "desc"),
     )
     return jsonify(sorted_posts)
@@ -104,20 +143,23 @@ def get_posts():
 
 @app.route('/api/posts/search', methods=['GET'])
 def search_posts():
-    """Sucht Beitraege per Query-Parameter title und content."""
-    title_query = request.args.get("title", "").strip().lower()
-    content_query = request.args.get("content", "").strip().lower()
+    """Sucht Beitraege per Parameter search, title, content, author, date."""
+    general_query = request.args.get("search", "").strip().lower()
+    field_queries = {
+        field: request.args.get(field, "").strip().lower()
+        for field in POST_FIELDS
+    }
 
     results = [
         post for post in POSTS
-        if matches_search(post, title_query, content_query)
+        if matches_search(post, field_queries, general_query)
     ]
     return jsonify(results), 200
 
 
 @app.route('/api/posts', methods=['POST'])
 def add_post():
-    """Legt einen neuen Beitrag an (201) oder meldet fehlende Felder (400)."""
+    """Legt einen neuen Beitrag an (201) oder meldet Fehler (400)."""
     data = request.get_json(silent=True)
 
     missing = find_missing_fields(data)
@@ -127,10 +169,19 @@ def add_post():
             "missing_fields": missing,
         }), 400
 
+    invalid = find_invalid_fields(data)
+    if invalid:
+        return jsonify({
+            "error": "Invalid value for field(s)",
+            "invalid_fields": invalid,
+        }), 400
+
     new_post = {
         "id": generate_new_id(),
         "title": data["title"],
         "content": data["content"],
+        "author": data.get("author", DEFAULT_AUTHOR),
+        "date": data.get("date", date.today().isoformat()),
     }
     POSTS.append(new_post)
     return jsonify(new_post), 201
@@ -171,8 +222,9 @@ def update_post(post_id):
             "invalid_fields": invalid,
         }), 400
 
-    post["title"] = data.get("title", post["title"])
-    post["content"] = data.get("content", post["content"])
+    for field in POST_FIELDS:
+        if field in data:
+            post[field] = data[field]
     return jsonify(post), 200
 
 
