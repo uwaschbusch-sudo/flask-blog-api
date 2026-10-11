@@ -54,6 +54,27 @@ def find_missing_fields(data):
     return missing
 
 
+def find_invalid_fields(data):
+    """Gibt die Namen der mitgesendeten Felder zurueck, deren Wert ungueltig ist.
+
+    Fehlende Felder sind erlaubt (optional). Ein mitgesendetes Feld muss
+    aber ein nicht leerer String sein.
+
+    Args:
+        data: Der geparste JSON-Body (dict).
+
+    Returns:
+        Liste der ungueltigen Feldnamen (leer, wenn alles gueltig ist).
+    """
+    invalid = []
+    for field in REQUIRED_FIELDS:
+        if field in data:
+            value = data[field]
+            if not isinstance(value, str) or not value.strip():
+                invalid.append(field)
+    return invalid
+
+
 @app.route('/api/posts', methods=['GET'])
 def get_posts():
     """Gibt alle Blogbeitraege als JSON zurueck."""
@@ -103,6 +124,37 @@ def delete_post(post_id):
     return jsonify({
         "message": f"Post with id {post_id} has been deleted successfully."
     }), 200
+
+
+@app.route('/api/posts/<int:post_id>', methods=['PUT'])
+def update_post(post_id):
+    """Aktualisiert den Beitrag mit der angegebenen ID.
+
+    "title" und "content" sind optional. Fehlende Felder behalten ihren
+    bisherigen Wert. Gibt bei Erfolg 200 mit dem aktualisierten Beitrag
+    zurueck, 404 wenn die ID nicht existiert und 400, wenn ein
+    mitgesendetes Feld kein nicht leerer String ist.
+    """
+    post = find_post_by_id(post_id)
+    if post is None:
+        return jsonify({
+            "error": f"Post with id {post_id} was not found."
+        }), 404
+
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        data = {}
+
+    invalid = find_invalid_fields(data)
+    if invalid:
+        return jsonify({
+            "error": "Invalid value for field(s)",
+            "invalid_fields": invalid,
+        }), 400
+
+    post["title"] = data.get("title", post["title"])
+    post["content"] = data.get("content", post["content"])
+    return jsonify(post), 200
 
 
 if __name__ == '__main__':
