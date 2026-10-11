@@ -1,0 +1,242 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "Masterblog API",
+    "description": "REST API for managing blog posts",
+    "version": "1.0.0"
+  },
+  "basePath": "/",
+  "tags": [
+    { "name": "Post", "description": "Post API - CRUD" }
+  ],
+  "paths": {
+    "/api/posts": {
+      "get": {
+        "summary": "Returns all posts, optionally sorted",
+        "produces": ["application/json"],
+        "tags": ["Post"],
+        "parameters": [
+          {
+            "name": "sort",
+            "in": "query",
+            "type": "string",
+            "enum": ["title", "content"],
+            "required": false,
+            "description": "Field to sort by"
+          },
+          {
+            "name": "direction",
+            "in": "query",
+            "type": "string",
+            "enum": ["asc", "desc"],
+            "required": false,
+            "description": "Sort order, defaults to asc"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful operation",
+            "schema": {
+              "type": "array",
+              "items": { "$ref": "#/definitions/Post" }
+            }
+          },
+          "400": {
+            "description": "Invalid sort field or direction",
+            "schema": { "$ref": "#/definitions/InvalidValueError" }
+          }
+        }
+      },
+      "post": {
+        "summary": "Adds a new post",
+        "consumes": ["application/json"],
+        "produces": ["application/json"],
+        "tags": ["Post"],
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": { "$ref": "#/definitions/NewPost" }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Post created",
+            "schema": { "$ref": "#/definitions/Post" }
+          },
+          "400": {
+            "description": "Title or content is missing",
+            "schema": { "$ref": "#/definitions/MissingFieldsError" }
+          }
+        }
+      }
+    },
+    "/api/posts/search": {
+      "get": {
+        "summary": "Searches posts by title or content",
+        "produces": ["application/json"],
+        "tags": ["Post"],
+        "parameters": [
+          {
+            "name": "title",
+            "in": "query",
+            "type": "string",
+            "required": false,
+            "description": "Search term for the title (case-insensitive)"
+          },
+          {
+            "name": "content",
+            "in": "query",
+            "type": "string",
+            "required": false,
+            "description": "Search term for the content (case-insensitive)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of matching posts, empty if nothing matches",
+            "schema": {
+              "type": "array",
+              "items": { "$ref": "#/definitions/Post" }
+            }
+          }
+        }
+      }
+    },
+    "/api/posts/{post_id}": {
+      "put": {
+        "summary": "Updates an existing post",
+        "consumes": ["application/json"],
+        "produces": ["application/json"],
+        "tags": ["Post"],
+        "parameters": [
+          {
+            "name": "post_id",
+            "in": "path",
+            "required": true,
+            "type": "integer",
+            "description": "ID of the post to update"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": { "$ref": "#/definitions/UpdatePost" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Post updated",
+            "schema": { "$ref": "#/definitions/Post" }
+          },
+          "400": {
+            "description": "A given field is not a non-empty string",
+            "schema": { "$ref": "#/definitions/InvalidFieldsError" }
+          },
+          "404": {
+            "description": "Post not found",
+            "schema": { "$ref": "#/definitions/Error" }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Deletes a post",
+        "produces": ["application/json"],
+        "tags": ["Post"],
+        "parameters": [
+          {
+            "name": "post_id",
+            "in": "path",
+            "required": true,
+            "type": "integer",
+            "description": "ID of the post to delete"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Post deleted",
+            "schema": { "$ref": "#/definitions/Message" }
+          },
+          "404": {
+            "description": "Post not found",
+            "schema": { "$ref": "#/definitions/Error" }
+          }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "Post": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "integer", "example": 1 },
+        "title": { "type": "string", "example": "First post" },
+        "content": { "type": "string", "example": "This is the first post." }
+      }
+    },
+    "NewPost": {
+      "type": "object",
+      "required": ["title", "content"],
+      "properties": {
+        "title": { "type": "string", "example": "My new post" },
+        "content": { "type": "string", "example": "Content of my new post." }
+      }
+    },
+    "UpdatePost": {
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "example": "New title" },
+        "content": { "type": "string", "example": "New content." }
+      }
+    },
+    "Message": {
+      "type": "object",
+      "properties": {
+        "message": {
+          "type": "string",
+          "example": "Post with id 1 has been deleted successfully."
+        }
+      }
+    },
+    "Error": {
+      "type": "object",
+      "properties": {
+        "error": { "type": "string", "example": "Post with id 99 was not found." }
+      }
+    },
+    "MissingFieldsError": {
+      "type": "object",
+      "properties": {
+        "error": { "type": "string", "example": "Missing required field(s)" },
+        "missing_fields": {
+          "type": "array",
+          "items": { "type": "string" },
+          "example": ["content"]
+        }
+      }
+    },
+    "InvalidFieldsError": {
+      "type": "object",
+      "properties": {
+        "error": { "type": "string", "example": "Invalid value for field(s)" },
+        "invalid_fields": {
+          "type": "array",
+          "items": { "type": "string" },
+          "example": ["title"]
+        }
+      }
+    },
+    "InvalidValueError": {
+      "type": "object",
+      "properties": {
+        "error": { "type": "string", "example": "Invalid sort field" },
+        "allowed_values": {
+          "type": "array",
+          "items": { "type": "string" },
+          "example": ["title", "content"]
+        }
+      }
+    }
+  }
+}

@@ -1,5 +1,6 @@
 from flask import Flask, jsonify, request
 from flask_cors import CORS
+from flask_swagger_ui import get_swaggerui_blueprint
 
 app = Flask(__name__)
 CORS(app)  # Aktiviert CORS fuer alle Routen
@@ -12,6 +13,16 @@ POSTS = [
 REQUIRED_FIELDS = ("title", "content")
 SORT_FIELDS = ("title", "content")
 SORT_DIRECTIONS = ("asc", "desc")
+
+SWAGGER_URL = "/api/docs"  # Adresse der Swagger-Oberflaeche
+API_URL = "/static/masterblog.json"  # Pfad zur Definitionsdatei
+
+swagger_ui_blueprint = get_swaggerui_blueprint(
+    SWAGGER_URL,
+    API_URL,
+    config={"app_name": "Masterblog API"},
+)
+app.register_blueprint(swagger_ui_blueprint, url_prefix=SWAGGER_URL)
 
 
 def generate_new_id():
