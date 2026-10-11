@@ -1,3 +1,8 @@
+import copy
+import json
+import os
+import tempfile
+import threading
 from datetime import date, datetime
 
 from flask import Flask, jsonify, request
@@ -7,7 +12,12 @@ from flask_swagger_ui import get_swaggerui_blueprint
 app = Flask(__name__)
 CORS(app)  # Aktiviert CORS fuer alle Routen
 
-POSTS = [
+FILE_NAME = "posts.json"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+POSTS_FILE = os.path.join(BASE_DIR, FILE_NAME)
+FILE_LOCK = threading.Lock()  # Verhindert gleichzeitige Dateizugriffe
+
+DEFAULT_POSTS = [
     {
         "id": 1,
         "title": "First post",
@@ -42,19 +52,18 @@ swagger_ui_blueprint = get_swaggerui_blueprint(
 app.register_blueprint(swagger_ui_blueprint, url_prefix=SWAGGER_URL)
 
 
-def generate_new_id():
-    """Erzeugt eine neue ID (hoechste vorhandene ID + 1)."""
-    if not POSTS:
-        return 1
-    return max(post["id"] for post in POSTS) + 1
+class StorageError(Exception):
+    """Wird ausgeloest, wenn die Beitragsdatei nicht nutzbar ist."""
 
 
-def find_post_by_id(post_id):
-    """Gibt den Beitrag mit dieser ID zurueck, sonst None."""
-    for post in POSTS:
-        if post["id"] == post_id:
-            return post
-    return None
+@app.errorhandler(StorageError)
+def handle_storage_error(error):
+    """Antwortet bei Dateifehlern mit 500 und einer JSON-Meldung."""
+    app.logger.error("Storage error: %s", error)
+    return jsonify({
+        "error": "Posts storage is not available",
+        "details": str(error),
+    }), 500
 
 
 def is_valid_date(value):
@@ -66,6 +75,71 @@ def is_valid_date(value):
     except (TypeError, ValueError):
         return False
     return True
+
+
+def is_valid_stored_post(post):
+    """Prueft, ob ein Eintrag aus der Datei ein vollstaendiger Beitrag ist."""
+    return (
+        isinstance(post, dict)
+        and isinstance(post.get("id"), int)
+        and all(isinstance(post.get(field), str) for field in POST_FIELDS)
+        and is_valid_date(post["date"])
+    )
+
+
+def save_posts(posts):
+    """Schreibt alle Beitraege sicher in die JSON-Datei."""
+    tmp_path = None
+    try:
+        folder = os.path.dirname(POSTS_FILE)
+        handle, tmp_path = tempfile.mkstemp(dir=folder, suffix=".tmp")
+        with os.fdopen(handle, "w", encoding="utf-8") as file:
+            json.dump(posts, file, indent=2, ensure_ascii=False)
+        os.replace(tmp_path, POSTS_FILE)
+    except OSError as error:
+        if tmp_path and os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        raise StorageError(f"{FILE_NAME} could not be written") from error
+
+
+def load_posts():
+    """Liest alle Beitraege aus der JSON-Datei, legt sie bei Bedarf an."""
+    if not os.path.exists(POSTS_FILE):
+        posts = copy.deepcopy(DEFAULT_POSTS)
+        save_posts(posts)
+        return posts
+
+    try:
+        with open(POSTS_FILE, "r", encoding="utf-8-sig") as file:
+            posts = json.load(file)
+    except json.JSONDecodeError as error:
+        raise StorageError(
+            f"{FILE_NAME} contains invalid JSON "
+            f"(line {error.lineno}, column {error.colno})"
+        ) from error
+    except (OSError, UnicodeDecodeError) as error:
+        raise StorageError(f"{FILE_NAME} could not be read") from error
+
+    if not isinstance(posts, list):
+        raise StorageError(f"{FILE_NAME} must contain a list of posts")
+    if not all(is_valid_stored_post(post) for post in posts):
+        raise StorageError(f"{FILE_NAME} contains an invalid post")
+    return posts
+
+
+def generate_new_id(posts):
+    """Erzeugt eine neue ID (hoechste vorhandene ID + 1)."""
+    if not posts:
+        return 1
+    return max(post["id"] for post in posts) + 1
+
+
+def find_post_by_id(posts, post_id):
+    """Gibt den Beitrag mit dieser ID zurueck, sonst None."""
+    for post in posts:
+        if post["id"] == post_id:
+            return post
+    return None
 
 
 def find_missing_fields(data):
@@ -130,11 +204,14 @@ def get_posts():
             "allowed_values": list(SORT_DIRECTIONS),
         }), 400
 
+    with FILE_LOCK:
+        posts = load_posts()
+
     if not sort_field:
-        return jsonify(POSTS)
+        return jsonify(posts)
 
     sorted_posts = sorted(
-        POSTS,
+        posts,
         key=lambda post: sort_key(post, sort_field),
         reverse=(direction == "desc"),
     )
@@ -150,8 +227,11 @@ def search_posts():
         for field in POST_FIELDS
     }
 
+    with FILE_LOCK:
+        posts = load_posts()
+
     results = [
-        post for post in POSTS
+        post for post in posts
         if matches_search(post, field_queries, general_query)
     ]
     return jsonify(results), 200
@@ -176,27 +256,33 @@ def add_post():
             "invalid_fields": invalid,
         }), 400
 
-    new_post = {
-        "id": generate_new_id(),
-        "title": data["title"],
-        "content": data["content"],
-        "author": data.get("author", DEFAULT_AUTHOR),
-        "date": data.get("date", date.today().isoformat()),
-    }
-    POSTS.append(new_post)
+    with FILE_LOCK:
+        posts = load_posts()
+        new_post = {
+            "id": generate_new_id(posts),
+            "title": data["title"],
+            "content": data["content"],
+            "author": data.get("author", DEFAULT_AUTHOR),
+            "date": data.get("date", date.today().isoformat()),
+        }
+        posts.append(new_post)
+        save_posts(posts)
     return jsonify(new_post), 201
 
 
 @app.route('/api/posts/<int:post_id>', methods=['DELETE'])
 def delete_post(post_id):
     """Loescht einen Beitrag (200) oder meldet, dass er fehlt (404)."""
-    post = find_post_by_id(post_id)
-    if post is None:
-        return jsonify({
-            "error": f"Post with id {post_id} was not found."
-        }), 404
+    with FILE_LOCK:
+        posts = load_posts()
+        post = find_post_by_id(posts, post_id)
+        if post is None:
+            return jsonify({
+                "error": f"Post with id {post_id} was not found."
+            }), 404
 
-    POSTS.remove(post)
+        posts.remove(post)
+        save_posts(posts)
     return jsonify({
         "message": f"Post with id {post_id} has been deleted successfully."
     }), 200
@@ -205,26 +291,29 @@ def delete_post(post_id):
 @app.route('/api/posts/<int:post_id>', methods=['PUT'])
 def update_post(post_id):
     """Aktualisiert einen Beitrag (200), meldet 404 oder 400 bei Fehlern."""
-    post = find_post_by_id(post_id)
-    if post is None:
-        return jsonify({
-            "error": f"Post with id {post_id} was not found."
-        }), 404
-
     data = request.get_json(silent=True)
     if not isinstance(data, dict):
         data = {}
 
-    invalid = find_invalid_fields(data)
-    if invalid:
-        return jsonify({
-            "error": "Invalid value for field(s)",
-            "invalid_fields": invalid,
-        }), 400
+    with FILE_LOCK:
+        posts = load_posts()
+        post = find_post_by_id(posts, post_id)
+        if post is None:
+            return jsonify({
+                "error": f"Post with id {post_id} was not found."
+            }), 404
 
-    for field in POST_FIELDS:
-        if field in data:
-            post[field] = data[field]
+        invalid = find_invalid_fields(data)
+        if invalid:
+            return jsonify({
+                "error": "Invalid value for field(s)",
+                "invalid_fields": invalid,
+            }), 400
+
+        for field in POST_FIELDS:
+            if field in data:
+                post[field] = data[field]
+        save_posts(posts)
     return jsonify(post), 200
 
 
