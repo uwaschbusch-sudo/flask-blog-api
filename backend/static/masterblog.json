@@ -20,9 +20,9 @@
             "name": "sort",
             "in": "query",
             "type": "string",
-            "enum": ["title", "content"],
+            "enum": ["title", "content", "author", "date"],
             "required": false,
-            "description": "Field to sort by"
+            "description": "Field to sort by (date is sorted chronologically)"
           },
           {
             "name": "direction",
@@ -66,18 +66,26 @@
             "schema": { "$ref": "#/definitions/Post" }
           },
           "400": {
-            "description": "Title or content is missing",
-            "schema": { "$ref": "#/definitions/MissingFieldsError" }
+            "description": "A required field is missing or a value is invalid",
+            "schema": { "$ref": "#/definitions/ValidationError" }
           }
         }
       }
     },
     "/api/posts/search": {
       "get": {
-        "summary": "Searches posts by title or content",
+        "summary": "Searches posts by title, content, author or date",
+        "description": "A post matches if at least one given term is found. Without any term the list is empty.",
         "produces": ["application/json"],
         "tags": ["Post"],
         "parameters": [
+          {
+            "name": "search",
+            "in": "query",
+            "type": "string",
+            "required": false,
+            "description": "Search term for all fields (case-insensitive)"
+          },
           {
             "name": "title",
             "in": "query",
@@ -91,6 +99,20 @@
             "type": "string",
             "required": false,
             "description": "Search term for the content (case-insensitive)"
+          },
+          {
+            "name": "author",
+            "in": "query",
+            "type": "string",
+            "required": false,
+            "description": "Search term for the author (case-insensitive)"
+          },
+          {
+            "name": "date",
+            "in": "query",
+            "type": "string",
+            "required": false,
+            "description": "Search term for the date, a part is enough, e.g. 2023-06"
           }
         ],
         "responses": {
@@ -131,7 +153,7 @@
             "schema": { "$ref": "#/definitions/Post" }
           },
           "400": {
-            "description": "A given field is not a non-empty string",
+            "description": "A given field is not valid",
             "schema": { "$ref": "#/definitions/InvalidFieldsError" }
           },
           "404": {
@@ -172,7 +194,9 @@
       "properties": {
         "id": { "type": "integer", "example": 1 },
         "title": { "type": "string", "example": "First post" },
-        "content": { "type": "string", "example": "This is the first post." }
+        "content": { "type": "string", "example": "This is the first post." },
+        "author": { "type": "string", "example": "Anonymous" },
+        "date": { "type": "string", "format": "date", "example": "2023-06-07" }
       }
     },
     "NewPost": {
@@ -180,14 +204,32 @@
       "required": ["title", "content"],
       "properties": {
         "title": { "type": "string", "example": "My new post" },
-        "content": { "type": "string", "example": "Content of my new post." }
+        "content": { "type": "string", "example": "Content of my new post." },
+        "author": {
+          "type": "string",
+          "description": "Optional, defaults to Anonymous",
+          "example": "Berta"
+        },
+        "date": {
+          "type": "string",
+          "format": "date",
+          "description": "Optional, format YYYY-MM-DD, defaults to today",
+          "example": "2023-06-07"
+        }
       }
     },
     "UpdatePost": {
       "type": "object",
       "properties": {
         "title": { "type": "string", "example": "New title" },
-        "content": { "type": "string", "example": "New content." }
+        "content": { "type": "string", "example": "New content." },
+        "author": { "type": "string", "example": "Max" },
+        "date": {
+          "type": "string",
+          "format": "date",
+          "description": "Format YYYY-MM-DD",
+          "example": "2025-05-05"
+        }
       }
     },
     "Message": {
@@ -205,7 +247,7 @@
         "error": { "type": "string", "example": "Post with id 99 was not found." }
       }
     },
-    "MissingFieldsError": {
+    "ValidationError": {
       "type": "object",
       "properties": {
         "error": { "type": "string", "example": "Missing required field(s)" },
@@ -213,6 +255,11 @@
           "type": "array",
           "items": { "type": "string" },
           "example": ["content"]
+        },
+        "invalid_fields": {
+          "type": "array",
+          "items": { "type": "string" },
+          "example": ["date"]
         }
       }
     },
@@ -223,7 +270,7 @@
         "invalid_fields": {
           "type": "array",
           "items": { "type": "string" },
-          "example": ["title"]
+          "example": ["date"]
         }
       }
     },
@@ -234,7 +281,7 @@
         "allowed_values": {
           "type": "array",
           "items": { "type": "string" },
-          "example": ["title", "content"]
+          "example": ["title", "content", "author", "date"]
         }
       }
     }
