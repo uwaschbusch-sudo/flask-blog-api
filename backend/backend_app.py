@@ -10,6 +10,8 @@ POSTS = [
 ]
 
 REQUIRED_FIELDS = ("title", "content")
+SORT_FIELDS = ("title", "content")
+SORT_DIRECTIONS = ("asc", "desc")
 
 
 def generate_new_id():
@@ -62,8 +64,31 @@ def matches_search(post, title_query, content_query):
 
 @app.route('/api/posts', methods=['GET'])
 def get_posts():
-    """Gibt alle Beitraege zurueck."""
-    return jsonify(POSTS)
+    """Gibt alle Beitraege zurueck, optional sortiert (sort, direction)."""
+    sort_field = request.args.get("sort", "").strip().lower()
+    direction = request.args.get("direction", "").strip().lower()
+
+    if sort_field and sort_field not in SORT_FIELDS:
+        return jsonify({
+            "error": "Invalid sort field",
+            "allowed_values": list(SORT_FIELDS),
+        }), 400
+
+    if direction and direction not in SORT_DIRECTIONS:
+        return jsonify({
+            "error": "Invalid direction",
+            "allowed_values": list(SORT_DIRECTIONS),
+        }), 400
+
+    if not sort_field:
+        return jsonify(POSTS)
+
+    sorted_posts = sorted(
+        POSTS,
+        key=lambda post: post[sort_field].lower(),
+        reverse=(direction == "desc"),
+    )
+    return jsonify(sorted_posts)
 
 
 @app.route('/api/posts/search', methods=['GET'])
