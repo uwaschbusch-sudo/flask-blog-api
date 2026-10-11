@@ -13,21 +13,14 @@ REQUIRED_FIELDS = ("title", "content")
 
 
 def generate_new_id():
-    """Erzeugt eine neue, eindeutige Integer-ID (hoechste vorhandene ID + 1)."""
+    """Erzeugt eine neue ID (hoechste vorhandene ID + 1)."""
     if not POSTS:
         return 1
     return max(post["id"] for post in POSTS) + 1
 
 
 def find_post_by_id(post_id):
-    """Sucht einen Beitrag anhand seiner ID.
-
-    Args:
-        post_id: Die ID des gesuchten Beitrags (int).
-
-    Returns:
-        Das Beitrags-Dict oder None, wenn keine ID passt.
-    """
+    """Gibt den Beitrag mit dieser ID zurueck, sonst None."""
     for post in POSTS:
         if post["id"] == post_id:
             return post
@@ -35,14 +28,7 @@ def find_post_by_id(post_id):
 
 
 def find_missing_fields(data):
-    """Gibt die Namen der Pflichtfelder zurueck, die fehlen oder leer sind.
-
-    Args:
-        data: Der geparste JSON-Body (dict) oder None.
-
-    Returns:
-        Liste der fehlenden Feldnamen (leer, wenn alles vorhanden ist).
-    """
+    """Gibt die fehlenden oder leeren Pflichtfelder zurueck."""
     if not isinstance(data, dict):
         return list(REQUIRED_FIELDS)
 
@@ -55,17 +41,7 @@ def find_missing_fields(data):
 
 
 def find_invalid_fields(data):
-    """Gibt die Namen der mitgesendeten Felder zurueck, deren Wert ungueltig ist.
-
-    Fehlende Felder sind erlaubt (optional). Ein mitgesendetes Feld muss
-    aber ein nicht leerer String sein.
-
-    Args:
-        data: Der geparste JSON-Body (dict).
-
-    Returns:
-        Liste der ungueltigen Feldnamen (leer, wenn alles gueltig ist).
-    """
+    """Gibt mitgesendete Felder zurueck, die kein nicht leerer String sind."""
     invalid = []
     for field in REQUIRED_FIELDS:
         if field in data:
@@ -75,20 +51,37 @@ def find_invalid_fields(data):
     return invalid
 
 
+def matches_search(post, title_query, content_query):
+    """Prueft, ob der Beitrag zu einem der Suchbegriffe passt."""
+    if title_query and title_query in post["title"].lower():
+        return True
+    if content_query and content_query in post["content"].lower():
+        return True
+    return False
+
+
 @app.route('/api/posts', methods=['GET'])
 def get_posts():
-    """Gibt alle Blogbeitraege als JSON zurueck."""
+    """Gibt alle Beitraege zurueck."""
     return jsonify(POSTS)
+
+
+@app.route('/api/posts/search', methods=['GET'])
+def search_posts():
+    """Sucht Beitraege per Query-Parameter title und content."""
+    title_query = request.args.get("title", "").strip().lower()
+    content_query = request.args.get("content", "").strip().lower()
+
+    results = [
+        post for post in POSTS
+        if matches_search(post, title_query, content_query)
+    ]
+    return jsonify(results), 200
 
 
 @app.route('/api/posts', methods=['POST'])
 def add_post():
-    """Legt einen neuen Blogbeitrag an.
-
-    Erwartet einen JSON-Body mit "title" und "content". Die ID wird
-    automatisch erzeugt. Bei fehlenden Feldern wird 400 zurueckgegeben,
-    bei Erfolg 201 mit dem neuen Beitrag.
-    """
+    """Legt einen neuen Beitrag an (201) oder meldet fehlende Felder (400)."""
     data = request.get_json(silent=True)
 
     missing = find_missing_fields(data)
@@ -109,11 +102,7 @@ def add_post():
 
 @app.route('/api/posts/<int:post_id>', methods=['DELETE'])
 def delete_post(post_id):
-    """Loescht den Beitrag mit der angegebenen ID.
-
-    Gibt bei Erfolg 200 mit einer Meldung zurueck, wenn die ID nicht
-    existiert 404 mit einer Fehlermeldung.
-    """
+    """Loescht einen Beitrag (200) oder meldet, dass er fehlt (404)."""
     post = find_post_by_id(post_id)
     if post is None:
         return jsonify({
@@ -128,13 +117,7 @@ def delete_post(post_id):
 
 @app.route('/api/posts/<int:post_id>', methods=['PUT'])
 def update_post(post_id):
-    """Aktualisiert den Beitrag mit der angegebenen ID.
-
-    "title" und "content" sind optional. Fehlende Felder behalten ihren
-    bisherigen Wert. Gibt bei Erfolg 200 mit dem aktualisierten Beitrag
-    zurueck, 404 wenn die ID nicht existiert und 400, wenn ein
-    mitgesendetes Feld kein nicht leerer String ist.
-    """
+    """Aktualisiert einen Beitrag (200), meldet 404 oder 400 bei Fehlern."""
     post = find_post_by_id(post_id)
     if post is None:
         return jsonify({
