@@ -9,6 +9,16 @@ window.onload = function() {
     }
 }
 
+// Maskiert HTML-Sonderzeichen, damit Beitragstexte nicht als Code laufen
+function escapeHtml(value) {
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
 // Function to fetch all the posts from the API and display them on the page
 function loadPosts() {
     // Retrieve the base URL from the input field and save it to local storage
@@ -25,10 +35,14 @@ function loadPosts() {
 
             // For each post in the response, create a new post element and add it to the page
             data.forEach(post => {
+                const author = post.author || 'Unknown';
+                const date = post.date || '';
                 const postDiv = document.createElement('div');
                 postDiv.className = 'post';
-                postDiv.innerHTML = `<h2>${post.title}</h2><p>${post.content}</p>
-                <button onclick="deletePost(${post.id})">Delete</button>`;
+                postDiv.innerHTML = `<h2>${escapeHtml(post.title)}</h2>
+                <p class="post-meta">By ${escapeHtml(author)} on ${escapeHtml(date)}</p>
+                <p>${escapeHtml(post.content)}</p>
+                <button onclick="deletePost(${Number(post.id)})">Delete</button>`;
                 postContainer.appendChild(postDiv);
             });
         })
